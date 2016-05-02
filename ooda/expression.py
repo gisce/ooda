@@ -1,5 +1,4 @@
 from tools import flatten, reverse_enumerate
-import fields
 
 
 class expression(object):

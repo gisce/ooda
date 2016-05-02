@@ -49,14 +49,16 @@ import logging
 
 import pickle
 
-import fields
+
 import tools
 
 import copy
 import sys
 import operator
-from tools.safe_eval import safe_eval as eval
-from tools.misc import SKIPPED_ELEMENT_TYPES
+
+from ooda import fields
+from ooda.tools import safe_eval as eval
+from ooda.tools import SKIPPED_ELEMENT_TYPES
 
 
 def _(msg):
@@ -68,7 +70,7 @@ except ImportError:
     sys.stderr.write("ERROR: Import lxml module\n")
     sys.stderr.write("ERROR: Try to install the python-lxml package\n")
 
-from tools.config import config
+from ooda.config import config
 
 regex_order = re.compile('^(([a-z0-9_]+|"[a-z0-9_]+")( *desc| *asc)?( *, *|))+$', re.I)
 
@@ -1579,8 +1581,9 @@ class orm_memory(orm_template):
             for field in upd_todo:
                 self._columns[field].set_memory(cr, self, id_new, field, vals[field], user, context)
         self._validate(cr, user, [id_new], context)
-        wf_service = netsvc.LocalService("workflow")
-        wf_service.trg_write(user, self._name, id_new, cr)
+        # TODO: Use signals to launch this
+        # wf_service = netsvc.LocalService("workflow")
+        # wf_service.trg_write(user, self._name, id_new, cr)
         return id_new
 
     def create(self, cr, user, vals, context=None):
@@ -1606,8 +1609,9 @@ class orm_memory(orm_template):
         for field in upd_todo:
             self._columns[field].set_memory(cr, self, id_new, field, vals[field], user, context)
         self._validate(cr, user, [id_new], context)
-        wf_service = netsvc.LocalService("workflow")
-        wf_service.trg_create(user, self._name, id_new, cr)
+        # TODO: Use signals
+        #wf_service = netsvc.LocalService("workflow")
+        #wf_service.trg_create(user, self._name, id_new, cr)
         return id_new
 
     def default_get(self, cr, uid, fields_list, context=None):
@@ -2520,11 +2524,12 @@ class orm(orm_template):
                   ('value', 'in', ['%s,%s' % (self._name, i) for i in ids]), 
                  ]
         if properties.search(cr, uid, domain, context=context):
-            raise except_orm('Error', 'Unable to delete this document because it is used as a default property'))
+            raise except_orm('Error', 'Unable to delete this document because it is used as a default property')
 
-        wf_service = netsvc.LocalService("workflow")
-        for oid in ids:
-            wf_service.trg_delete(uid, self._name, oid, cr)
+        # TODO: Use signals
+        # wf_service = netsvc.LocalService("workflow")
+        # for oid in ids:
+        #     wf_service.trg_delete(uid, self._name, oid, cr)
 
         d1, d2 = self.pool.get('ir.rule').domain_get(cr, uid, self._name)
 
@@ -2786,9 +2791,10 @@ class orm(orm_template):
         for order, object, ids, fields in result:
             self.pool.get(object)._store_set_values(cr, user, ids, fields, context)
 
-        wf_service = netsvc.LocalService("workflow")
-        for id in ids:
-            wf_service.trg_write(user, self._name, id, cr)
+        # TODO: Use signals
+        # wf_service = netsvc.LocalService("workflow")
+        # for id in ids:
+        #     wf_service.trg_write(user, self._name, id, cr)
         return True
 
     #
@@ -2956,8 +2962,9 @@ class orm(orm_template):
                     self.pool.get(object)._store_set_values(cr, user, ids, fields2, context)
                     done.append((object, ids, fields2))
 
-        wf_service = netsvc.LocalService("workflow")
-        wf_service.trg_create(user, self._name, id_new, cr)
+        # TODO: Use signals
+        # wf_service = netsvc.LocalService("workflow")
+        # wf_service.trg_create(user, self._name, id_new, cr)
         return id_new
 
     def _store_get_values(self, cr, uid, ids, fields, context):

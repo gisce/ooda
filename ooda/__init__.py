@@ -1,2 +1,1 @@
-import osv
-import fields
+
