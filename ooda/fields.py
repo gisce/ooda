@@ -1,24 +1,3 @@
-# -*- encoding: utf-8 -*-
-##############################################################################
-#
-#    OpenERP, Open Source Management Solution
-#    Copyright (C) 2004-2009 Tiny SPRL (<http://tiny.be>). All Rights Reserved
-#    $Id$
-#
-#    This program is free software: you can redistribute it and/or modify
-#    it under the terms of the GNU General Public License as published by
-#    the Free Software Foundation, either version 3 of the License, or
-#    (at your option) any later version.
-#
-#    This program is distributed in the hope that it will be useful,
-#    but WITHOUT ANY WARRANTY; without even the implied warranty of
-#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-#    GNU General Public License for more details.
-#
-#    You should have received a copy of the GNU General Public License
-#    along with this program.  If not, see <http://www.gnu.org/licenses/>.
-#
-##############################################################################
 
 # . Fields:
 #      - simple
@@ -37,7 +16,6 @@ from psycopg2 import Binary
 import warnings
 
 import tools
-from tools.translate import _
 
 def _symbol_set(symb):
     if symb == None or symb == False:
@@ -88,13 +66,13 @@ class _column(object):
         cr.execute('update '+obj._table+' set '+name+'='+self._symbol_set[0]+' where id=%s', (self._symbol_set[1](value), id))
 
     def set_memory(self, cr, obj, id, name, value, user=None, context=None):
-        raise Exception(_('Not implemented set_memory method !'))
+        raise Exception('Not implemented set_memory method !')
 
     def get_memory(self, cr, obj, ids, name, user=None, context=None, values=None):
-        raise Exception(_('Not implemented get_memory method !'))
+        raise Exception('Not implemented get_memory method !')
 
     def get(self, cr, obj, ids, name, user=None, offset=0, context=None, values=None):
-        raise Exception(_('undefined get method !'))
+        raise Exception('undefined get method !')
 
     def search(self, cr, obj, args, name, value, offset=0, limit=None, uid=None, context=None):
         ids = obj.search(cr, uid, args+self._domain+[(name, 'ilike', value)], offset, limit, context=context)
@@ -102,7 +80,7 @@ class _column(object):
         return [x[name] for x in res]
 
     def search_memory(self, cr, obj, args, name, value, offset=0, limit=None, uid=None, context=None):
-        raise Exception(_('Not implemented search_memory method !'))
+        raise Exception('Not implemented search_memory method !')
 
 
 # ---------------------------------------------------------
@@ -409,7 +387,7 @@ class one2many(_column):
                     obj.datas[id2][self._fields_id] = id
 
     def search_memory(self, cr, obj, args, name, value, offset=0, limit=None, uid=None, operator='like', context=None):
-        raise _('Not Implemented')
+        raise NotImplementedError
 
     def get(self, cr, obj, ids, name, user=None, offset=0, context=None, values=None):
         if not context:
@@ -486,8 +464,8 @@ class many2many(_column):
         _column.__init__(self, string=string, **args)
         self._obj = obj
         if '.' in rel:
-            raise Exception(_('The second argument of the many2many field %s must be a SQL table !'\
-                'You used %s, which is not a valid SQL table name.')% (string,rel))
+            raise Exception('The second argument of the many2many field %s must be a SQL table !'\
+                'You used %s, which is not a valid SQL table name.') % (string,rel)
         self._rel = rel
         self._id1 = id1
         self._id2 = id2
@@ -582,18 +560,8 @@ class many2many(_column):
             return
         for act in values:
             # TODO: use constants instead of these magic numbers
-            if act[0] == 0:
-                raise _('Not Implemented')
-            elif act[0] == 1:
-                raise _('Not Implemented')
-            elif act[0] == 2:
-                raise _('Not Implemented')
-            elif act[0] == 3:
-                raise _('Not Implemented')
-            elif act[0] == 4:
-                raise _('Not Implemented')
-            elif act[0] == 5:
-                raise _('Not Implemented')
+            if 0 <= act[0] < 6:
+                raise NotImplementedError
             elif act[0] == 6:
                 obj.datas[id][name] = act[2]
 
