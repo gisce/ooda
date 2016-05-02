@@ -44,20 +44,23 @@ import calendar
 import datetime
 import types
 import string
-import netsvc
 import re
+import logging
 
 import pickle
 
 import fields
 import tools
-from tools.translate import _
 
 import copy
 import sys
 import operator
 from tools.safe_eval import safe_eval as eval
 from tools.misc import SKIPPED_ELEMENT_TYPES
+
+
+def _(msg):
+    return msg
 
 try:
     from lxml import etree
@@ -68,6 +71,8 @@ except ImportError:
 from tools.config import config
 
 regex_order = re.compile('^(([a-z0-9_]+|"[a-z0-9_]+")( *desc| *asc)?( *, *|))+$', re.I)
+
+logger = logging.getLogger('orm')
 
 def last_day_of_current_month():
     today = datetime.date.today()
@@ -144,7 +149,7 @@ class browse_record(object):
         self._data = cache[table._name]
 
         if not (id and isinstance(id, (int, long,))):
-            raise BrowseRecordError(_('Wrong ID for the browse record, got %r, expected an integer.') % (id,))
+            raise BrowseRecordError('Wrong ID for the browse record, got %r, expected an integer.') % (id,)
 #        if not table.exists(cr, uid, id, context):
 #            raise BrowseRecordError(_('Object %s does not exists') % (self,))
 
@@ -170,8 +175,7 @@ class browse_record(object):
                 else:
                     return getattr(self._table, name)
             else:
-                logger = netsvc.Logger()
-                logger.notifyChannel('orm', netsvc.LOG_ERROR, "Programming error: field '%s' does not exist in object '%s' !" % (name, self._table._name))
+                logger.error("Programming error: field '%s' does not exist in object '%s' !" % (name, self._table._name))
                 return False
 
             # if the field is a classic one or a many2one, we'll fetch all classic and many2one fields
@@ -193,7 +197,7 @@ class browse_record(object):
                 lang = self._context.get('lang', 'en_US') or 'en_US'
                 lang_obj_ids = self.pool.get('res.lang').search(self._cr, self._uid,[('code','=',lang)])
                 if not lang_obj_ids:
-                    raise Exception(_('Language with code "%s" is not defined in your system !\nDefine it through the Administration menu.') % (lang,))
+                    raise Exception('Language with code "%s" is not defined in your system !\nDefine it through the Administration menu.') % (lang,)
                 lang_obj = self.pool.get('res.lang').browse(self._cr, self._uid,lang_obj_ids[0])
                 for n, f in ffields:
                     if f._type in self._fields_process:
@@ -320,8 +324,7 @@ def get_pg_type(f):
     elif isinstance(f, fields.function) and f._type == 'char':
         f_type = ('varchar', 'VARCHAR(%d)' % (f.size))
     else:
-        logger = netsvc.Logger()
-        logger.notifyChannel("init", netsvc.LOG_WARNING, '%s type not supported!' % (type(f)))
+        logger.warning('%s type not supported!' % (type(f)))
         f_type = None
     return f_type
 
@@ -346,7 +349,6 @@ class orm_template(object):
     CONCURRENCY_CHECK_FIELD = '__last_update'
 
     def _field_create(self, cr, context={}):
-        logger = netsvc.Logger()
         cr.execute("SELECT id FROM ir_model WHERE model=%s", (self._name,))
         if not cr.rowcount:
             cr.execute('SELECT nextval(%s)', ('ir_model_id_seq',))
@@ -417,10 +419,7 @@ class orm_template(object):
                     name1 = 'field_' + self._table + '_' + k
                     cr.execute("select name from ir_model_data where name=%s", (name1,))
                     if not cr.rowcount:
-                        logger.notifyChannel(
-                            'orm',
-                            netsvc.LOG_INFO,
-                            'Creating new register into ir_model_data for field %s and model %s (%s)' %
+                        logger.info('Creating new register into ir_model_data for field %s and model %s (%s)' %
                                 (vals['name'], vals['model'], name1)
                         )
                         cr.execute("select id from ir_model_fields where model = %s and name = %s", (vals['model'], vals['name']))
@@ -450,8 +449,7 @@ class orm_template(object):
             name = type(self).__name__.split('.')[0]
             msg = "The class %s has to have a _name attribute" % name
 
-            logger = netsvc.Logger()
-            logger.notifyChannel('orm', netsvc.LOG_ERROR, msg )
+            logger.error(msg)
             raise except_orm('ValueError', msg )
 
         if not self._description:
@@ -622,7 +620,6 @@ class orm_template(object):
         if not context:
             context = {}
         fields = map(lambda x: x.split('/'), fields)
-        logger = netsvc.Logger()
         ir_model_data_obj = self.pool.get('ir.model.data')
         
         def _check_db_id(self, model_name, db_id):
@@ -648,7 +645,7 @@ class orm_template(object):
             #
             for i in range(len(fields)):
                 if i >= len(line):
-                    raise Exception(_('Please check that all your lines have %d columns.') % (len(fields),))
+                    raise Exception('Please check that all your lines have %d columns.') % (len(fields),)
                 if not line[i]:
                     continue
                     
@@ -671,8 +668,7 @@ class orm_template(object):
                                         res_id.append(db_id)
                                     except Exception,e:                                    
                                         warning += [tools.exception_to_unicode(e)]
-                                        logger.notifyChannel("import", netsvc.LOG_ERROR,
-                                                  tools.exception_to_unicode(e))
+                                        logger.error(tools.exception_to_unicode(e))
                                 if len(res_id):
                                     res = [(6, 0, res_id)]
                             else:
@@ -681,8 +677,7 @@ class orm_template(object):
                                     res = line[i]
                                 except Exception,e:                                    
                                     warning += [tools.exception_to_unicode(e)]
-                                    logger.notifyChannel("import", netsvc.LOG_ERROR,
-                                              tools.exception_to_unicode(e))                        
+                                    logger.error(tools.exception_to_unicode(e))
                         row[field_name] = res or False
                         continue
 
@@ -744,8 +739,7 @@ class orm_template(object):
                                db_id = is_db_id 
                         if is_db_id and int(db_id) != int(is_db_id):                        
                             warning += [_("Id is not the same than existing one: %s")%(is_db_id)]
-                            logger.notifyChannel("import", netsvc.LOG_ERROR,
-                                    _("Id is not the same than existing one: %s")%(is_db_id))
+                            logger.error(_("Id is not the same than existing one: %s")%(is_db_id))
                         continue
 
                     if field[len(prefix)] == "db_id":
@@ -755,8 +749,7 @@ class orm_template(object):
                             data_res_id = is_db_id = int(line[i])
                         except Exception,e:
                             warning += [tools.exception_to_unicode(e)]
-                            logger.notifyChannel("import", netsvc.LOG_ERROR,
-                                      tools.exception_to_unicode(e))
+                            logger.error(tools.exception_to_unicode(e))
                             continue
                         data_ids = ir_model_data_obj.search(cr, uid, [('model','=',model_name),('res_id','=',line[i])])
                         if len(data_ids):
@@ -770,8 +763,7 @@ class orm_template(object):
                             data_id = is_xml_id                                     
                         if is_xml_id and is_xml_id!=data_id:  
                             warning += [_("Id is not the same than existing one: %s")%(line[i])]
-                            logger.notifyChannel("import", netsvc.LOG_ERROR,
-                                    _("Id is not the same than existing one: %s")%(line[i]))
+                            logger.error(_("Id is not the same than existing one: %s")%(line[i]))
                                                            
                         continue
                     if fields_def[field[len(prefix)]]['type'] == 'integer':
@@ -793,8 +785,7 @@ class orm_template(object):
                                 res = key
                                 break
                         if line[i] and not res:
-                            logger.notifyChannel("import", netsvc.LOG_WARNING,
-                                    _("key '%s' not found in selection field '%s'") % \
+                            logger.warning(_("key '%s' not found in selection field '%s'") % \
                                             (line[i], field[len(prefix)]))
                             
                             warning += [_("Key/value '%s' not found in selection field '%s'")%(line[i],field[len(prefix)])]
@@ -808,8 +799,7 @@ class orm_template(object):
                             res = (res2 and res2[0][0]) or False
                             if not res:
                                 warning += [_("Relation not found: %s on '%s'")%(line[i],relation)]
-                                logger.notifyChannel("import", netsvc.LOG_WARNING,
-                                        _("Relation not found: %s on '%s'")%(line[i],relation))
+                                logger.warning(_("Relation not found: %s on '%s'")%(line[i],relation))
                     elif fields_def[field[len(prefix)]]['type']=='many2many':
                         res = []
                         if line[i]:
@@ -820,9 +810,7 @@ class orm_template(object):
                                 res3 = (res2 and res2[0][0]) or False
                                 if not res3:
                                     warning += [_("Relation not found: %s on '%s'")%(line[i],relation)]
-                                    logger.notifyChannel("import",
-                                            netsvc.LOG_WARNING,
-                                            _("Relation not found: %s on '%s'")%(line[i],relation))
+                                    logger.warning(_("Relation not found: %s on '%s'")%(line[i],relation))
                                 else:
                                     res.append(res3)
                             if len(res):
@@ -900,14 +888,14 @@ class orm_template(object):
                 import osv
                 cr.rollback()
                 if isinstance(e,psycopg2.IntegrityError):
-                    msg= _('Insertion Failed! ')
+                    msg= 'Insertion Failed! '
                     for key in self.pool._sql_error.keys():
                         if key in e[0]:
                             msg = self.pool._sql_error[key]
                             break
                     return (-1, res, 'Line ' + str(counter) +' : ' + msg, '' )
                 if isinstance(e, osv.orm.except_orm ):
-                    msg = _('Insertion Failed! ' + e[1])
+                    msg = 'Insertion Failed! ' + e[1]
                     return (-1, res, 'Line ' + str(counter) +' : ' + msg, '' )
                 #Raising Uncaught exception
                 return (-1, res, 'Line ' + str(counter) +' : ' + str(e), '' )
@@ -939,7 +927,7 @@ class orm_template(object):
         return (done, 0, 0, 0)
 
     def read(self, cr, user, ids, fields=None, context=None, load='_classic_read'):
-        raise NotImplementedError(_('The read method is not implemented on this object !'))
+        raise NotImplementedError('The read method is not implemented on this object !')
 
     def get_invalid_fields(self,cr,uid):
         return list(self._invalids)
@@ -972,16 +960,16 @@ class orm_template(object):
         return {}
 
     def perm_read(self, cr, user, ids, context=None, details=True):
-        raise NotImplementedError(_('The perm_read method is not implemented on this object !'))
+        raise NotImplementedError('The perm_read method is not implemented on this object !')
 
     def unlink(self, cr, uid, ids, context=None):
-        raise NotImplementedError(_('The unlink method is not implemented on this object !'))
+        raise NotImplementedError('The unlink method is not implemented on this object !')
 
     def write(self, cr, user, ids, vals, context=None):
-        raise NotImplementedError(_('The write method is not implemented on this object !'))
+        raise NotImplementedError('The write method is not implemented on this object !')
 
     def create(self, cr, user, vals, context=None):
-        raise NotImplementedError(_('The create method is not implemented on this object !'))
+        raise NotImplementedError('The create method is not implemented on this object !')
 
     # returns the definition of each field in the object
     # the optional fields parameter can limit the result to some fields
@@ -1198,7 +1186,7 @@ class orm_template(object):
                 res.insert(0, ("Can't find field '%s' in the following view parts composing the view of object model '%s':" % (field, model), None))
                 msg = "\n * ".join([r[0] for r in res])
                 msg += "\n\nEither you wrongly customised this view, or some modules bringing those views are not compatible with your current data model"
-                netsvc.Logger().notifyChannel('orm', netsvc.LOG_ERROR, msg)
+                logger.error(msg)
                 raise except_orm('View error', msg)
 
         return arch, fields
@@ -1461,19 +1449,19 @@ class orm_template(object):
 
     def search(self, cr, user, args, offset=0, limit=None, order=None,
             context=None, count=False):
-        raise NotImplementedError(_('The search method is not implemented on this object !'))
+        raise NotImplementedError('The search method is not implemented on this object !')
 
     def name_get(self, cr, user, ids, context=None):
-        raise NotImplementedError(_('The name_get method is not implemented on this object !'))
+        raise NotImplementedError('The name_get method is not implemented on this object !')
 
     def name_search(self, cr, user, name='', args=None, operator='ilike', context=None, limit=80):
-        raise NotImplementedError(_('The name_search method is not implemented on this object !'))
+        raise NotImplementedError('The name_search method is not implemented on this object !')
 
     def copy(self, cr, uid, id, default=None, context=None):
-        raise NotImplementedError(_('The copy method is not implemented on this object !'))
+        raise NotImplementedError('The copy method is not implemented on this object !')
 
     def exists(self, cr, uid, id, context=None):
-        raise NotImplementedError(_('The exists method is not implemented on this object !'))
+        raise NotImplementedError('The exists method is not implemented on this object !')
 
     def read_string(self, cr, uid, id, langs, fields=None, context=None):
         res = {}
@@ -1718,8 +1706,7 @@ class orm(orm_template):
     def _parent_store_compute(self, cr):
         if not self._parent_store:
             return
-        logger = netsvc.Logger()
-        logger.notifyChannel('orm', netsvc.LOG_INFO, 'Computing parent left and right for table %s...' % (self._table, ))
+        logger.info('Computing parent left and right for table %s...' % (self._table, ))
         def browse_rec(root, pos=0):
 # TODO: set order
             where = self._parent_name+'='+str(root)
@@ -1744,14 +1731,12 @@ class orm(orm_template):
         return True
 
     def _update_store(self, cr, f, k):
-        logger = netsvc.Logger()
-        logger.notifyChannel('orm', netsvc.LOG_INFO, "storing computed values of fields.function '%s'" % (k,))
+        logger.info("storing computed values of fields.function '%s'" % (k,))
         ss = self._columns[k]._symbol_set
         update_query = 'UPDATE "%s" SET "%s"=%s WHERE id=%%s' % (self._table, k, ss[0])
         cr.execute('select id from '+self._table)
         ids_lst = map(lambda x: x[0], cr.fetchall())
-        logger.notifyChannel('orm', netsvc.LOG_INFO,
-                             "storing computed values for %s objects" % len(ids_lst))
+        logger.info("storing computed values for %s objects" % len(ids_lst))
         start = datetime.datetime.now()
         while ids_lst:
             iids = ids_lst[:40]
@@ -1766,12 +1751,10 @@ class orm(orm_template):
                 if (val<>False) or (type(val)<>bool):
                     cr.execute(update_query, (ss[1](val), key))
         end  = datetime.datetime.now()
-        logger.notifyChannel('orm', netsvc.LOG_INFO,
-                 "stored in %.3fs" % ((end - start).seconds +
+        logger.info("stored in %.3fs" % ((end - start).seconds +
                  float((end - start).microseconds) / 10**6))
 
     def _check_removed_columns(self, cr, log=False):
-        logger = netsvc.Logger()
         # iterate on the database columns to drop the NOT NULL constraints
         # of fields which were required but have been removed (or will be added by another module)
         columns = [c for c in self._columns if not (isinstance(self._columns[c], fields.function) and not self._columns[c].store)]
@@ -1786,13 +1769,12 @@ class orm(orm_template):
                        (self._table, False, tuple(columns)))
         for column in cr.dictfetchall():
             if log:
-                logger.notifyChannel("orm", netsvc.LOG_DEBUG, "column %s is in the table %s but not in the corresponding object %s" % (column['attname'], self._table, self._name))
+                logger.debug("column %s is in the table %s but not in the corresponding object %s" % (column['attname'], self._table, self._name))
             if column['attnotnull']:
                 cr.execute('ALTER TABLE "%s" ALTER COLUMN "%s" DROP NOT NULL' % (self._table, column['attname']))
 
     def _auto_init(self, cr, context={}):
-        store_compute =  False
-        logger = netsvc.Logger()
+        store_compute = False
         create = False
         todo_end = []
         self._field_create(cr, context=context)
@@ -1808,11 +1790,11 @@ class orm(orm_template):
                     """, (self._table, 'parent_left'))
                 if not cr.rowcount:
                     if 'parent_left' not in self._columns:
-                        logger.notifyChannel('orm', netsvc.LOG_ERROR, 'create a column parent_left on object %s: fields.integer(\'Left Parent\', select=1)' % (self._table, ))
+                        logger.error('create a column parent_left on object %s: fields.integer(\'Left Parent\', select=1)' % (self._table, ))
                     if 'parent_right' not in self._columns:
-                        logger.notifyChannel('orm', netsvc.LOG_ERROR, 'create a column parent_right on object %s: fields.integer(\'Right Parent\', select=1)' % (self._table, ))
+                        logger.error('create a column parent_right on object %s: fields.integer(\'Right Parent\', select=1)' % (self._table, ))
                     if self._columns[self._parent_name].ondelete != 'cascade':
-                        logger.notifyChannel('orm', netsvc.LOG_ERROR, "The column %s on object %s must be set as ondelete='cascade'" % (self._parent_name, self._name))
+                        logger.error("The column %s on object %s must be set as ondelete='cascade'" % (self._parent_name, self._name))
                     cr.execute('ALTER TABLE "%s" ADD COLUMN "parent_left" INTEGER' % (self._table,))
                     cr.execute('ALTER TABLE "%s" ADD COLUMN "parent_right" INTEGER' % (self._table,))
                     store_compute = True
@@ -1890,9 +1872,9 @@ class orm(orm_template):
                                 ss = self._columns[k]._symbol_set
                                 query = 'UPDATE "%s" SET "%s"=%s' % (self._table, k, ss[0])
                                 cr.execute(query, (ss[1](default),))
-                                logger.notifyChannel('orm', netsvc.LOG_DEBUG, 'setting default value of new column %s of table %s'% (k, self._table))
+                                logger.debug('setting default value of new column %s of table %s'% (k, self._table))
                             elif not create:
-                                logger.notifyChannel('orm', netsvc.LOG_DEBUG, 'creating new column %s of table %s'% (k, self._table))
+                                logger.debug('creating new column %s of table %s'% (k, self._table))
 
                             if isinstance(f, fields.function):
                                 order = 10
@@ -1917,7 +1899,7 @@ class orm(orm_template):
                                 try:
                                     cr.execute('ALTER TABLE "%s" ALTER COLUMN "%s" SET NOT NULL' % (self._table, k))
                                 except Exception:
-                                    logger.notifyChannel('orm', netsvc.LOG_WARNING, 'WARNING: unable to set column %s of table %s not null !\nTry to re-run: openerp-server.py --update=module\nIf it doesn\'t work, update records and execute manually:\nALTER TABLE %s ALTER COLUMN %s SET NOT NULL' % (k, self._table, self._table, k))
+                                    logger.warning('unable to set column %s of table %s not null !\nTry to re-run: openerp-server.py --update=module\nIf it doesn\'t work, update records and execute manually:\nALTER TABLE %s ALTER COLUMN %s SET NOT NULL' % (k, self._table, self._table, k))
                                     cr.rollback(savepoint)
                                 finally:
                                     cr.release(savepoint)
@@ -1927,7 +1909,7 @@ class orm(orm_template):
                         f_pg_size = f_pg_def['size']
                         f_pg_notnull = f_pg_def['attnotnull']
                         if isinstance(f, fields.function) and not f.store:
-                            logger.notifyChannel('orm', netsvc.LOG_INFO, 'column %s (%s) in table %s removed: converted to a function !\n' % (k, f.string, self._table))
+                            logger.info('column %s (%s) in table %s removed: converted to a function !\n' % (k, f.string, self._table))
                             cr.execute('ALTER TABLE "%s" DROP COLUMN "%s" CASCADE'% (self._table, k))
                             f_obj_type = None
                         else:
@@ -1946,7 +1928,7 @@ class orm(orm_template):
                             # !!! Avoid reduction of varchar field !!!
                             if f_pg_type == 'varchar' and f._type == 'char' and f_pg_size < f.size:
                             # if f_pg_type == 'varchar' and f._type == 'char' and f_pg_size != f.size:
-                                logger.notifyChannel('orm', netsvc.LOG_INFO, "column '%s' in table '%s' changed size" % (k, self._table))
+                                logger.info("column '%s' in table '%s' changed size" % (k, self._table))
                                 cr.execute('ALTER TABLE "%s" RENAME COLUMN "%s" TO temp_change_size' % (self._table, k))
                                 cr.execute('ALTER TABLE "%s" ADD COLUMN "%s" VARCHAR(%d)' % (self._table, k, f.size))
                                 cr.execute('UPDATE "%s" SET "%s"=temp_change_size::VARCHAR(%d)' % (self._table, k, f.size))
@@ -1963,9 +1945,9 @@ class orm(orm_template):
                                                 
                                     if f_pg_type != f_obj_type or field_size_change:
                                         if f_pg_type != f_obj_type:
-                                            logger.notifyChannel('orm', netsvc.LOG_INFO, "column '%s' in table '%s' changed type to %s." % (k, self._table, c[1]))
+                                            logger.info("column '%s' in table '%s' changed type to %s." % (k, self._table, c[1]))
                                         if field_size_change:
-                                            logger.notifyChannel('orm', netsvc.LOG_INFO, "column '%s' in table '%s' changed in the size." % (k, self._table))
+                                            logger.info("column '%s' in table '%s' changed in the size." % (k, self._table))
                                         ok = True
                                         cr.execute('ALTER TABLE "%s" RENAME COLUMN "%s" TO temp_change_size' % (self._table, k))
                                         cr.execute('ALTER TABLE "%s" ADD COLUMN "%s" %s' % (self._table, k, c[2]))
@@ -1975,7 +1957,7 @@ class orm(orm_template):
 
                             if f_pg_type != f_obj_type:
                                 if not ok:
-                                    logger.notifyChannel('orm', netsvc.LOG_WARNING, "column '%s' in table '%s' has changed type (DB = %s, def = %s) but unable to migrate this change !" % (k, self._table, f_pg_type, f._type))
+                                    logger.warning("column '%s' in table '%s' has changed type (DB = %s, def = %s) but unable to migrate this change !" % (k, self._table, f_pg_type, f._type))
 
                             # if the field is required and hasn't got a NOT NULL constraint
                             if f.required and f_pg_notnull == 0:
@@ -1992,7 +1974,7 @@ class orm(orm_template):
                                 try:
                                     cr.execute('ALTER TABLE "%s" ALTER COLUMN "%s" SET NOT NULL' % (self._table, k))
                                 except Exception:
-                                    logger.notifyChannel('orm', netsvc.LOG_WARNING, 'unable to set a NOT NULL constraint on column %s of the %s table !\nIf you want to have it, you should update the records and execute manually:\nALTER TABLE %s ALTER COLUMN %s SET NOT NULL' % (k, self._table, self._table, k))
+                                    logger.warning('unable to set a NOT NULL constraint on column %s of the %s table !\nIf you want to have it, you should update the records and execute manually:\nALTER TABLE %s ALTER COLUMN %s SET NOT NULL' % (k, self._table, self._table, k))
                                     cr.rollback(savepoint)
                                 finally:
                                     cr.release(savepoint)
@@ -2036,7 +2018,7 @@ class orm(orm_template):
                                             cr.execute('ALTER TABLE "' + self._table + '" DROP CONSTRAINT "' + res[0]['conname'] + '"')
                                             cr.execute('ALTER TABLE "' + self._table + '" ADD FOREIGN KEY ("' + k + '") REFERENCES "' + ref + '" ON DELETE ' + f.ondelete)
                     else:
-                        logger.notifyChannel('orm', netsvc.LOG_ERROR, "Programming error !")
+                        logger.error("Programming error !")
             for order,f,k in todo_update_store:
                 todo_end.append((order, self._update_store, (f, k)))
 
@@ -2068,7 +2050,7 @@ class orm(orm_template):
                 try:
                     cr.execute(query)
                 except:
-                    logger.notifyChannel('orm', netsvc.LOG_WARNING, 'unable to add \'%s\' constraint on table %s !\n If you want to have it, you should update the records and execute manually:\n%s' % (con, self._table, query))
+                    logger.warning('unable to add \'%s\' constraint on table %s !\n If you want to have it, you should update the records and execute manually:\n%s' % (con, self._table, query))
                     cr.rollback(conname)
                 finally:
                     cr.release(conname)
@@ -2352,8 +2334,8 @@ class orm(orm_template):
                 if d1:
                     cr.execute(query, [tuple(sub_ids)] + d2)
                     if cr.rowcount != len(set(sub_ids)):
-                        raise except_orm(_('AccessError'),
-                                _('You try to bypass an access rule (Document type: %s).') % self._description)
+                        raise except_orm('AccessError',
+                                'You try to bypass an access rule (Document type: %s).') % self._description
                 else:
                     cr.execute(query, (tuple(sub_ids),))
                 res.extend(cr.dictfetchall())
@@ -2519,7 +2501,7 @@ class orm(orm_template):
                     cr.execute("SELECT count(1) FROM %s WHERE %s" % (self._table, " OR ".join([santa]*(len(sub_ids)/2))), sub_ids)
                     res = cr.fetchone()
                     if res and res[0]:
-                        raise except_orm('ConcurrencyException', _('Records were modified in the meanwhile'))
+                        raise except_orm('ConcurrencyException', 'Records were modified in the meanwhile')
 
     def unlink(self, cr, uid, ids, context=None):
         if not ids:
@@ -2538,7 +2520,7 @@ class orm(orm_template):
                   ('value', 'in', ['%s,%s' % (self._name, i) for i in ids]), 
                  ]
         if properties.search(cr, uid, domain, context=context):
-            raise except_orm(_('Error'), _('Unable to delete this document because it is used as a default property'))
+            raise except_orm('Error', 'Unable to delete this document because it is used as a default property'))
 
         wf_service = netsvc.LocalService("workflow")
         for oid in ids:
