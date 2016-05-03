@@ -74,7 +74,7 @@ from ooda.config import config
 
 regex_order = re.compile('^(([a-z0-9_]+|"[a-z0-9_]+")( *desc| *asc)?( *, *|))+$', re.I)
 
-logger = logging.getLogger('orm')
+logger = logging.getLogger('ooda.orm')
 
 def last_day_of_current_month():
     today = datetime.date.today()
