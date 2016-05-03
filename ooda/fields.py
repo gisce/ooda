@@ -15,7 +15,8 @@
 from psycopg2 import Binary
 import warnings
 
-import tools
+from ooda import tools
+
 
 def _symbol_set(symb):
     if symb == None or symb == False:

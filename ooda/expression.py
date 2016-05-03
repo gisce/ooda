@@ -1,4 +1,4 @@
-from tools import flatten, reverse_enumerate
+from ooda.tools import flatten, reverse_enumerate
 
 
 class expression(object):
