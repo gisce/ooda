@@ -2023,6 +2023,32 @@ class orm(orm_template):
                                             cr.execute('ALTER TABLE "' + self._table + '" ADD FOREIGN KEY ("' + k + '") REFERENCES "' + ref + '" ON DELETE ' + f.ondelete)
                     else:
                         logger.error("Programming error !")
+                    if isinstance(f, fields.many2one):
+                        # CREATE INDEX ON FKs
+                        indexname = '%s_%s_fk_index' % (self._table, k)
+                        cr.execute(
+                            "SELECT indexname FROM pg_indexes "
+                            "WHERE indexname = %s and tablename = %s",
+                            (indexname, self._table)
+                        )
+                        res = cr.dictfetchall()
+                        if not res:
+                            logger.info(
+                                'create index on many2one '
+                                'column {0}  in table {1} \n'.format(
+                                    k, self._table
+                                )
+                            )
+                            cr.execute(
+                                'CREATE INDEX "%s" ON "%s" ("%s")' % (
+                                    indexname, self._table, k)
+                            )
+                        else:
+                            logger.debug(
+                                'SKIP create index, because detected index '
+                                'for many2one column {0} in table'
+                                ' {1} \n'.format(k, self._table)
+                            )
             for order,f,k in todo_update_store:
                 todo_end.append((order, self._update_store, (f, k)))
 
