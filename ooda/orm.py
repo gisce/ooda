@@ -1647,8 +1647,9 @@ class orm_memory(orm_template):
             for field in upd_todo:
                 self._columns[field].set_memory(cr, self, id_new, field, vals[field], user, context)
         self._validate(cr, user, [id_new], context)
-        wf_service = netsvc.LocalService("workflow")
-        wf_service.trg_write(user, self._name, id_new, cr)
+        # TODO: Check in ERP workflow is created
+        #wf_service = netsvc.LocalService("workflow")
+        #wf_service.trg_write(user, self._name, id_new, cr)
         return id_new
 
     def create(self, cr, user, vals, context=None):
@@ -1682,8 +1683,9 @@ class orm_memory(orm_template):
         for field in upd_todo:
             self._columns[field].set_memory(cr, self, id_new, field, vals[field], user, context)
         self._validate(cr, user, [id_new], context)
-        wf_service = netsvc.LocalService("workflow")
-        wf_service.trg_create(user, self._name, id_new, cr)
+        # TODO: Check in OpenERP is called
+        #wf_service = netsvc.LocalService("workflow")
+        #wf_service.trg_create(user, self._name, id_new, cr)
         return id_new
 
     def default_get(self, cr, uid, fields_list, context=None):
@@ -2134,8 +2136,7 @@ class orm(orm_template):
                                 if k == x['column_names'].strip():
                                     found_column = True
                             if not found_idx_name and not found_column:
-                                logger.notifyChannel(
-                                    'orm', netsvc.LOG_INFO,
+                                logger.info(
                                     'create index on many2one '
                                     'column {0}  in table {1} \n'.format(
                                         k, self._table
@@ -2146,8 +2147,7 @@ class orm(orm_template):
                                         indexname, self._table, k)
                                 )
                             else:
-                                logger.notifyChannel(
-                                    'orm', netsvc.LOG_DEBUG,
+                                logger.debug(
                                     'SKIP create index, because detected index '
                                     'for many2one column {0} in table'
                                     ' {1} \n'.format(k, self._table)
@@ -2655,9 +2655,10 @@ class orm(orm_template):
         if properties.search(cr, uid, domain, context=context):
             raise except_orm('Error', 'Unable to delete this document because it is used as a default property')
 
-        wf_service = netsvc.LocalService("workflow")
-        for oid in ids:
-            wf_service.trg_delete(uid, self._name, oid, cr)
+        # TODO: Check in OpenERP
+        #wf_service = netsvc.LocalService("workflow")
+        #for oid in ids:
+        #    wf_service.trg_delete(uid, self._name, oid, cr)
 
         d1, d2 = self.pool.get('ir.rule').domain_get(cr, uid, self._name)
 
@@ -2919,9 +2920,10 @@ class orm(orm_template):
         for order, object, ids, fields in result:
             self.pool.get(object)._store_set_values(cr, user, ids, fields, context)
 
-        wf_service = netsvc.LocalService("workflow")
-        for id in ids:
-            wf_service.trg_write(user, self._name, id, cr)
+        # TODO: Check in OpenERP
+        #wf_service = netsvc.LocalService("workflow")
+        #for id in ids:
+        #    wf_service.trg_write(user, self._name, id, cr)
         return True
 
     #
@@ -3089,8 +3091,9 @@ class orm(orm_template):
                     self.pool.get(object)._store_set_values(cr, user, ids, fields2, context)
                     done.append((object, ids, fields2))
 
-        wf_service = netsvc.LocalService("workflow")
-        wf_service.trg_create(user, self._name, id_new, cr)
+        # TODO: Check in OpenERP
+        #wf_service = netsvc.LocalService("workflow")
+        #wf_service.trg_create(user, self._name, id_new, cr)
         return id_new
 
     def _store_get_values(self, cr, uid, ids, fields, context):
