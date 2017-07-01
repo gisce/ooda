@@ -5,8 +5,9 @@ setup(
     name='ooda',
     version='0.1.0-dev',
     packages=find_packages(),
-    url='https://github.com/openoriented/ooda',
-    license='GPL-3',
+    url='https://github.com/gisce/ooda',
+    license='GPL-2',
+    install_requires=['psycopg2', 'lxml'],
     author='GISCE-TI, S.L.',
     author_email='devel@gisce.net',
     description='OpenOriented Data Access'
