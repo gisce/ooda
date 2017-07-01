@@ -82,13 +82,39 @@ def last_day_of_current_month():
     return time.strftime('%Y-%m-' + last_day)
 
 def intersect(la, lb):
-    return filter(lambda x: x in lb, la)
+    return set(la).intersection(lb)
 
 class except_orm(Exception):
+    exc_type = 'error'
+
     def __init__(self, name, value):
         self.name = name
         self.value = value
         self.args = (name, value)
+        super(except_orm, self).__init__(
+            "%s -- %s\n\n%s" % (self.exc_type, self.name, self.value)
+        )
+
+
+class AccessError(except_orm):
+    exc_type = 'warning'
+
+
+class SqlConstrainError(except_orm):
+    exc_type = 'warning'
+
+
+class SqlIntegrityError(except_orm):
+    exc_type = 'warning'
+
+
+class ConcurrencyException(except_orm):
+    exc_type = 'warning'
+
+
+class ValidateException(except_orm):
+    exc_type = 'warning'
+
 
 class BrowseRecordError(Exception):
     pass
@@ -237,6 +263,20 @@ class browse_record(object):
                             new_data[n] = browse_null()
                     elif f._type in ('one2many', 'many2many') and len(data[n]):
                         new_data[n] = self._list_class([browse_record(self._cr, self._uid, id, self._table.pool.get(f._obj), self._cache, context=self._context, list_class=self._list_class, fields_process=self._fields_process) for id in data[n]], self._context)
+                    elif (f._type == 'reference' and
+                              self._context and
+                              self._context.get('browse_reference', False)):
+                        if data[n]:
+                            modelname, modelid = data[n].split(',')
+                            obj = self._table.pool.get(modelname)
+                            new_data[n] = browse_record(self._cr,
+                                                        self._uid, int(modelid), obj,
+                                                        self._cache,
+                                                        context=self._context,
+                                                        list_class=self._list_class,
+                                                        fields_process=self._fields_process)
+                        else:
+                            new_data[n] = browse_null()
                     else:
                         new_data[n] = data[n]
                 self._data[data['id']].update(new_data)
@@ -280,6 +320,10 @@ def get_pg_type(f):
     returns a tuple
     (type returned by postgres when the column was created, type expression to create the column)
     '''
+    f_type = getattr(f, 'pg_type', None)
+
+    if f_type:
+        return f_type
 
     type_dict = {
             fields.boolean: 'bool',
@@ -291,6 +335,7 @@ def get_pg_type(f):
             fields.datetime: 'timestamp',
             fields.binary: 'bytea',
             fields.many2one: 'int4',
+            fields.json: 'text'
             }
     if type(f) in type_dict:
         f_type = (type_dict[type(f)], type_dict[type(f)])
@@ -1008,6 +1053,17 @@ class orm_template(object):
                             and getattr(self._columns[f], arg):
                         res[f][arg] = getattr(self._columns[f], arg)
 
+                write_groups = self._columns[f].write
+                access_pool = self.pool.get('ir.model.access')
+                access = False
+                for group in write_groups:
+                    access = access or access_pool.check_groups(
+                        cr, user, group
+                    )
+                    if not access and user != 1:
+                        res[f]['readonly'] = True
+                        res[f]['states'] = {}
+
                 res_trans = translation_obj._get_source(cr, user, self._name + ',' + f, 'field', context.get('lang', False) or 'en_US', self._columns[f].string)
                 if res_trans:
                     res[f]['string'] = res_trans
@@ -1118,17 +1174,19 @@ class orm_template(object):
 
         # translate view
         if ('lang' in context) and not result:
-            if node.get('string'):
-                trans = self.pool.get('ir.translation')._get_source(cr, user, self._name, 'view', context['lang'], node.get('string'))
-                if not trans and ('base_model_name' in context):
-                    trans = self.pool.get('ir.translation')._get_source(cr, user, context['base_model_name'], 'view', context['lang'], node.get('string'))
-                if trans:
-                    node.set('string', trans)
-            if node.get('sum'):
-                trans = self.pool.get('ir.translation')._get_source(cr, user, self._name, 'view', context['lang'], node.get('sum'))
-                if trans:
-                    node.set('sum', trans)
-
+            trans_obj = self.pool.get('ir.translation')
+            for node_attr in ['string', 'sum', 'confirm']:
+                to_translate = node.get(node_attr)
+                if to_translate:
+                    if node_attr == 'string':
+                        model_trans = context.get('base_model_name', self._name)
+                    else:
+                        model_trans = self._name
+                    trans = trans_obj._get_source(
+                        cr, user, model_trans, 'view', context['lang'],
+                        node.get(node_attr)
+                    )
+                    node.set(node_attr, trans)
         if childs:
             for f in node:
                 fields.update(self.__view_look_dom(cr, user, f, view_id, context))
@@ -1319,8 +1377,10 @@ class orm_template(object):
         ok = True
         model = True
         sql_res = False
+        extend = None
+        ctx = context.copy()
         while ok:
-            view_ref = context.get(view_type + '_view_ref', False)
+            view_ref = ctx.pop(view_type + '_view_ref', False)
             if view_ref:
                 if '.' in view_ref:
                     module, view_ref = view_ref.split('.', 1)
@@ -1330,7 +1390,7 @@ class orm_template(object):
                         view_id = view_ref_res[0]
 
             if view_id:
-                query = "SELECT arch,name,field_parent,id,type,inherit_id FROM ir_ui_view WHERE id=%s"
+                query = "SELECT arch,name,field_parent,id,type,inherit_id,extend FROM ir_ui_view WHERE id=%s"
                 params = (view_id,)
                 if model:
                     query += " AND model=%s"
@@ -1338,17 +1398,19 @@ class orm_template(object):
                 cr.execute(query, params)
             else:
                 cr.execute('''SELECT
-                        arch,name,field_parent,id,type,inherit_id
+                        arch,name,field_parent,id,type,inherit_id,extend
                     FROM
                         ir_ui_view
                     WHERE
                         model=%s AND
                         type=%s AND
-                        inherit_id IS NULL
+                        ((inherit_id IS NULL AND not extend) OR extend)
                     ORDER BY priority''', (self._name, view_type))
             sql_res = cr.fetchone()
             if not sql_res:
                 break
+            if extend is None:
+                extend = sql_res[6]
             ok = sql_res[5]
             view_id = ok or sql_res[3]
             model = False
@@ -1359,9 +1421,11 @@ class orm_template(object):
             result['view_id'] = sql_res[3]
             result['arch'] = sql_res[0]
 
-            def _inherit_apply_rec(result, inherit_id):
+            def _inherit_apply_rec(result, inherit_id, extend=False):
                 # get all views which inherit from (ie modify) this view
-                cr.execute('select arch,id from ir_ui_view where inherit_id=%s and model=%s order by priority', (inherit_id, self._name))
+                models = (self._name, )
+                models += tuple((x for x in self._inherits.keys()))
+                cr.execute('select arch,id from ir_ui_view where inherit_id=%s and model in %s and extend = %s order by priority', (inherit_id, models, extend))
                 sql_inherit = cr.fetchall()
                 for (inherit, id) in sql_inherit:
                     result = _inherit_apply(result, inherit)
@@ -1370,6 +1434,8 @@ class orm_template(object):
 
             inherit_result = etree.fromstring(encode(result['arch']))
             result['arch'] = _inherit_apply_rec(inherit_result, sql_res[3])
+            if extend:
+               result['arch'] =  _inherit_apply_rec(result['arch'], sql_res[3], True)
 
             result['name'] = sql_res[1]
             result['field_parent'] = sql_res[2] or False
@@ -1581,9 +1647,8 @@ class orm_memory(orm_template):
             for field in upd_todo:
                 self._columns[field].set_memory(cr, self, id_new, field, vals[field], user, context)
         self._validate(cr, user, [id_new], context)
-        # TODO: Use signals to launch this
-        # wf_service = netsvc.LocalService("workflow")
-        # wf_service.trg_write(user, self._name, id_new, cr)
+        wf_service = netsvc.LocalService("workflow")
+        wf_service.trg_write(user, self._name, id_new, cr)
         return id_new
 
     def create(self, cr, user, vals, context=None):
@@ -1595,7 +1660,15 @@ class orm_memory(orm_template):
             if not f in vals:
                 default.append(f)
         if len(default):
-            vals.update(self.default_get(cr, user, default, context))
+            default_values = self.default_get(cr, user, default, context)
+            for dv in default_values:
+                if (dv in self._columns and
+                    self._columns[dv]._type == 'many2many'):
+                    if default_values[dv] and isinstance(default_values[dv][0],
+                                                         (int, long)):
+                        default_values[dv] = [(6, 0, default_values[dv])]
+            vals.update(default_values)
+
         vals2 = {}
         upd_todo = []
         for field in vals:
@@ -1609,9 +1682,8 @@ class orm_memory(orm_template):
         for field in upd_todo:
             self._columns[field].set_memory(cr, self, id_new, field, vals[field], user, context)
         self._validate(cr, user, [id_new], context)
-        # TODO: Use signals
-        #wf_service = netsvc.LocalService("workflow")
-        #wf_service.trg_create(user, self._name, id_new, cr)
+        wf_service = netsvc.LocalService("workflow")
+        wf_service.trg_create(user, self._name, id_new, cr)
         return id_new
 
     def default_get(self, cr, uid, fields_list, context=None):
@@ -2023,6 +2095,63 @@ class orm(orm_template):
                                             cr.execute('ALTER TABLE "' + self._table + '" ADD FOREIGN KEY ("' + k + '") REFERENCES "' + ref + '" ON DELETE ' + f.ondelete)
                     else:
                         logger.error("Programming error !")
+                    if isinstance(f, fields.many2one):
+                        autoindex = config.get('autoindex')
+                        if autoindex:
+                            # CREATE INDEX ON FKs
+                            indexname = 'idx_fk_{column}_{table}'.format(
+                                column=k, table=self._table)
+                            indexname = indexname.replace(
+                                'giscedata', 'gd')[:63]
+
+                            cr.execute(
+                                """
+                                select t.relname as table_name, i.relname as index_name,
+                                       am.amname as typeof,
+                                       array_to_string(array_agg(a.attname), ', ') as column_names
+                                from
+                                    pg_class t, pg_class i, pg_index ix,
+                                    pg_attribute a, pg_am am
+                                where
+                                    t.oid = ix.indrelid
+                                    and i.oid = ix.indexrelid
+                                    and a.attrelid = t.oid
+                                    and a.attnum = ANY(ix.indkey)
+                                    and i.relam = am.oid
+                                    and t.relkind = 'r'
+                                    and t.relname = %s
+                                group by
+                                    t.relname, i.relname, am.amname
+                                """,
+                                (self._table,)
+                            )
+                            res = cr.dictfetchall()
+                            found_idx_name = False
+                            found_column = False
+                            for x in res:
+                                if indexname == x['index_name']:
+                                    found_idx_name = True
+                                if k == x['column_names'].strip():
+                                    found_column = True
+                            if not found_idx_name and not found_column:
+                                logger.notifyChannel(
+                                    'orm', netsvc.LOG_INFO,
+                                    'create index on many2one '
+                                    'column {0}  in table {1} \n'.format(
+                                        k, self._table
+                                    )
+                                )
+                                cr.execute(
+                                    'CREATE INDEX "%s" ON "%s" ("%s")' % (
+                                        indexname, self._table, k)
+                                )
+                            else:
+                                logger.notifyChannel(
+                                    'orm', netsvc.LOG_DEBUG,
+                                    'SKIP create index, because detected index '
+                                    'for many2one column {0} in table'
+                                    ' {1} \n'.format(k, self._table)
+                                )
             for order,f,k in todo_update_store:
                 todo_end.append((order, self._update_store, (f, k)))
 
@@ -2338,7 +2467,7 @@ class orm(orm_template):
                 if d1:
                     cr.execute(query, [tuple(sub_ids)] + d2)
                     if cr.rowcount != len(set(sub_ids)):
-                        raise except_orm('AccessError',
+                        raise AccessError('AccessError',
                                 'You try to bypass an access rule (Document type: %s).') % self._description
                 else:
                     cr.execute(query, (tuple(sub_ids),))
@@ -2505,7 +2634,7 @@ class orm(orm_template):
                     cr.execute("SELECT count(1) FROM %s WHERE %s" % (self._table, " OR ".join([santa]*(len(sub_ids)/2))), sub_ids)
                     res = cr.fetchone()
                     if res and res[0]:
-                        raise except_orm('ConcurrencyException', 'Records were modified in the meanwhile')
+                        raise ConcurrencyException('ConcurrencyException', 'Records were modified in the meanwhile')
 
     def unlink(self, cr, uid, ids, context=None):
         if not ids:
@@ -2526,10 +2655,9 @@ class orm(orm_template):
         if properties.search(cr, uid, domain, context=context):
             raise except_orm('Error', 'Unable to delete this document because it is used as a default property')
 
-        # TODO: Use signals
-        # wf_service = netsvc.LocalService("workflow")
-        # for oid in ids:
-        #     wf_service.trg_delete(uid, self._name, oid, cr)
+        wf_service = netsvc.LocalService("workflow")
+        for oid in ids:
+            wf_service.trg_delete(uid, self._name, oid, cr)
 
         d1, d2 = self.pool.get('ir.rule').domain_get(cr, uid, self._name)
 
@@ -2542,8 +2670,8 @@ class orm(orm_template):
             if d1:
                 cr.execute('SELECT id' + from_where, [tuple(sub_ids)] + d2)
                 if not cr.rowcount == len(set(sub_ids)):
-                    raise except_orm(_('AccessError'),
-                            _('You try to bypass an access rule (Document type: %s).') % \
+                    raise AccessError('AccessError',
+                            'You try to bypass an access rule (Document type: %s).' % \
                                     self._description)
 
                 cr.execute('DELETE' + from_where, [tuple(sub_ids)] + d2)
@@ -2657,8 +2785,8 @@ class orm(orm_template):
                 else:
                     if val not in dict(self._columns[field].selection(
                         self, cr, user, context=context)):
-                        raise except_orm(_('ValidateError'),
-                        _('The value "%s" for the field "%s" is not in the selection') \
+                        raise ValidateException('ValidateError',
+                        'The value "%s" for the field "%s" is not in the selection' \
                                 % (vals[field], field))
 
         if self._log_access:
@@ -2681,17 +2809,17 @@ class orm(orm_template):
                 if d1:
                     cr.execute(select_query, [tuple(sub_ids)] + d2)
                     if cr.rowcount != len(sub_ids):
-                        raise except_orm(_('AccessError'),
-                                _('You try to bypass an access rule (Document type: %s).') % \
+                        raise AccessError('AccessError',
+                                'You try to bypass an access rule (Document type: %s).' % \
                                         self._description)
 
                     cr.execute(update_query, upd1 + [tuple(sub_ids)] + d2)
                 else:
                     cr.execute(select_query, (tuple(sub_ids),))
                     if cr.rowcount != len(sub_ids):
-                        raise except_orm(_('AccessError'),
-                                _('You try to write on an record that doesn\'t exist ' \
-                                        '(Document type: %s).') % self._description)
+                        raise AccessError('AccessError',
+                                'You try to write on an record that doesn\'t exist ' \
+                                        '(Document type: %s).' % self._description)
 
                     cr.execute(update_query, upd1 + [tuple(sub_ids)])
 
@@ -2791,10 +2919,9 @@ class orm(orm_template):
         for order, object, ids, fields in result:
             self.pool.get(object)._store_set_values(cr, user, ids, fields, context)
 
-        # TODO: Use signals
-        # wf_service = netsvc.LocalService("workflow")
-        # for id in ids:
-        #     wf_service.trg_write(user, self._name, id, cr)
+        wf_service = netsvc.LocalService("workflow")
+        for id in ids:
+            wf_service.trg_write(user, self._name, id, cr)
         return True
 
     #
@@ -2902,14 +3029,14 @@ class orm(orm_template):
                     val = vals[field]
                 if isinstance(self._columns[field].selection, (tuple, list)):
                     if val not in dict(self._columns[field].selection):
-                        raise except_orm(_('ValidateError'),
-                        _('The value "%s" for the field "%s" is not in the selection') \
+                        raise ValidateException(('ValidateError'),
+                        ('The value "%s" for the field "%s" is not in the selection') \
                                 % (vals[field], field))
                 else:
                     if val not in dict(self._columns[field].selection(
                         self, cr, user, context=context)):
-                        raise except_orm(_('ValidateError'),
-                        _('The value "%s" for the field "%s" is not in the selection') \
+                        raise ValidateException(('ValidateError'),
+                        ('The value "%s" for the field "%s" is not in the selection') \
                                 % (vals[field], field))
         if self._log_access:
             upd0 += ',create_uid,create_date'
@@ -2962,9 +3089,8 @@ class orm(orm_template):
                     self.pool.get(object)._store_set_values(cr, user, ids, fields2, context)
                     done.append((object, ids, fields2))
 
-        # TODO: Use signals
-        # wf_service = netsvc.LocalService("workflow")
-        # wf_service.trg_create(user, self._name, id_new, cr)
+        wf_service = netsvc.LocalService("workflow")
+        wf_service.trg_create(user, self._name, id_new, cr)
         return id_new
 
     def _store_get_values(self, cr, uid, ids, fields, context):
@@ -3084,7 +3210,7 @@ class orm(orm_template):
 
     def _check_qorder(self, word):
         if not regex_order.match(word):
-            raise except_orm(_('AccessError'), _('Bad query.'))
+            raise AccessError(('AccessError'), ('Bad query.'))
         return True
 
     def search(self, cr, user, args, offset=0, limit=None, order=None,

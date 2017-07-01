@@ -52,8 +52,8 @@ class _column(object):
         self.translate = translate
         self._domain = domain or []
         self._context = context
-        self.write = False
-        self.read = False
+        self.write = []
+        self.read = []
         self.view_load = 0
         self.select = select
         for a in args:
@@ -561,8 +561,18 @@ class many2many(_column):
             return
         for act in values:
             # TODO: use constants instead of these magic numbers
-            if 0 <= act[0] < 6:
-                raise NotImplementedError
+            if act[0] == 0:
+                raise _('Not Implemented')
+            elif act[0] == 1:
+                raise _('Not Implemented')
+            elif act[0] == 2:
+                raise _('Not Implemented')
+            elif act[0] == 3:
+                raise _('Not Implemented')
+            elif act[0] == 4:
+                raise _('Not Implemented')
+            elif act[0] == 5:
+                raise _('Not Implemented')
             elif act[0] == 6:
                 obj.datas[id][name] = act[2]
 
@@ -627,6 +637,19 @@ class function(_column):
         if not values:
             values = {}
         res = {}
+        if self.store and self._type == 'many2one' and values:
+            m2o = many2one(self._obj)
+            if isinstance(name, (list, tuple)):
+                for individual_name in name:
+                    res2 = m2o.get(cr, obj, ids, individual_name,
+                                  user=user, context=context, values=values)
+                    for key, val in res2.iteritems():
+                        res.setdefault(key, {})
+                        res[key][individual_name] = val
+            else:
+                res = m2o.get(cr, obj, ids, name,
+                              user=user, context=context, values=values)
+            return res
         if self._method:
             res = self._fnct(obj, cr, user, ids, name, self._arg, context)
         else:
@@ -879,6 +902,11 @@ class property(function):
 
     def restart(self):
         self.field_id = {}
+
+
+class json(text):
+    _symbol_set = ('%s', lambda value: value if isinstance(value, basestring) else json_serializer.dumps(value))
+    _symbol_get = lambda self, value: json_serializer.loads(value) if value else {}
 
 
 # vim:expandtab:smartindent:tabstop=4:softtabstop=4:shiftwidth=4:
