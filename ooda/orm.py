@@ -64,12 +64,6 @@ from ooda.tools import SKIPPED_ELEMENT_TYPES
 def _(msg):
     return msg
 
-try:
-    from lxml import etree
-except ImportError:
-    sys.stderr.write("ERROR: Import lxml module\n")
-    sys.stderr.write("ERROR: Try to install the python-lxml package\n")
-
 from ooda.config import config
 
 regex_order = re.compile('^(([a-z0-9_]+|"[a-z0-9_]+")( *desc| *asc)?( *, *|))+$', re.I)
